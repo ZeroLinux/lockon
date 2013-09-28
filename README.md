@@ -1,7 +1,7 @@
 LockOn
 ======
 
-Lockon is a bash script tool to block domains (http and https) for BrazilFW.
+<h4>Lockon is a bash script tool to block domains (http and https) for BrazilFW.</h4>
 Lockon is an administration tool that will help you to manage the access to certain
 domains using the whitelist/blacklist concept and selective list of users that must
 be restricted or unbloqued. You can configure Lockon to look for new ips for each 

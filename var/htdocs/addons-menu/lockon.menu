@@ -1,0 +1,8 @@
+dropmenu "LockOn" "/icons/lockon_icon.png"
+	menuitem "Add" "/lockon/index.cgi" "/icons/plus.png"
+	menuitem "Manage" "/lockon/manage.cgi" "/icons/lock.png"
+	menuitem "Helper" "/lockon/helper.cgi" "/icons/conntrack.png"
+	menuitem "Stratos" "/lockon/stratos.cgi" "/icons/rules.png"
+	menuitem "-"
+	menuitem "Configuration" "/lockon/config.cgi" "/icons/config.png"
+end_dropmenu

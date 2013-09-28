@@ -1,0 +1,143 @@
+#!/bin/sh
+
+#  By ZeroLinux - 18/07/2013
+# 
+#  Copyright 2013 Carlos D. Rincon <carlosrincon2005@gmail.com>
+#  The development of this tool was supported by Projeto Addons (www.projeto addons.com.br)
+#  
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#  
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#  
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#  MA 02110-1301, USA.
+#  
+#  
+
+. /partition/lockon/etc/global.cfg
+
+setProfile(){
+	. ${PROFILE}/${MODE}
+}
+
+query(){
+	SITE="$1"
+	OUTPUT="$(dig ${1} +short +time=2 +tries=2 | grep -E "^[0-9]")"
+}
+
+dbCTRL(){
+	db="$1"
+	site="$2"
+	[ ! "$(grep -w "$site" $HELPER/$db.db)" ] && { echo "$site" >> ${HELPER}/$db.db; } || echo "already in $db.db"
+}
+
+db(){
+	[ -z "$2" -a "$1" != "show" ] && { echo "No enough arguments"; exit 1; } || SITE="$2"
+	dynamic="$3"
+	secure="$4"
+	case $1 in
+		create)
+			[ -z "$3" ] && { echo "No enough arguments, is dynamic?"; exit 1; }
+			[ -z "$4" ] && { echo "No enough arguments, is secure?"; exit 1; }
+			[ ! -e "$DBPATH/${SITE}" ] && touch $DBPATH/${SITE} || echo "Domain exist, updating...";
+			[ "$dynamic" = "true" ] && dbCTRL "dynamic" "$SITE"
+			[ "$secure" = "true" ] && dbCTRL "ssl" "$SITE"
+		;;
+		update)
+			query $SITE
+			UPD=0
+			for URL in $OUTPUT; do
+				if [ ! "$(grep -w $URL $DBPATH/${SITE})" ]; then
+					echo "$URL" >> $DBPATH/${SITE}
+					[ "$secure" = "true" ] && { ctrlURL add "$URL" ssl; } || { ctrlURL add "$URL"; }
+					UPD=$(( UPD + 1 ))
+				fi
+			done
+			echo $UPD
+		;;
+		delete)
+			rm -rf $DBPATH/${SITE}
+			sed -i '/\<'$SITE'\>/d' $HELPER/dynamic.db
+			sed -i '/\<'$SITE'\>/d' $HELPER/ssl.db
+		;;
+		show)
+			[ -n "$SITE" ] && { cat $DBPATH/${SITE} | sort -t . -k 4,4n; } || ls $DBPATH
+		;;
+	esac
+}
+
+webSRV(){
+	if [ "$1" = "isactive" ]; then
+		[ "$(ps aux | grep '[l]ockon.conf')" ] && echo "true" || exit 1
+	fi
+}
+
+ipSRV(){
+	if [ "$1" = "isactive" ]; then
+		[ "$(iptables -L -t mangle -nv | grep -w 'Chain lockon')" ] && active="true" || { echo "false"; exit 1; }
+		[ ! -e "/tmp/lockon" ] && active="sleep"
+		echo "$active"
+	fi
+	case $1 in
+		start)
+			loadProfile
+			touch /tmp/lockon
+		;;
+		stop)
+			unloadProfile
+			rm /tmp/lockon
+		;;
+	esac
+}
+
+fn_stratos(){
+	action="$1"
+	ip="$2"
+	comment="$3"
+	if [ "$action" = "add" ]; then
+		[ ! "$(grep -w $ip $STRATOSFILE)" ] && echo "$ip $comment" >> $STRATOSFILE
+		ctrlStratos "add" "$ip"
+	fi
+	if [ "$action" = "delete" ]; then
+		sed -i '/\<'$ip'\>/d' $STRATOSFILE
+		ctrlStratos "del" "$ip"
+	fi
+}
+
+setProfile
+
+case $1 in
+	add)
+		db create $2 $3 $4
+		db update $2 $3 $4
+	;;
+	update)
+		if [ "$2" = "--all" ]; then
+			for i in "$(ls $DBPATH/)"; do
+				db update $i
+			done
+		elif [[ "$2" = "--dynamic" ]]; then
+			while read ip; do
+				db update $ip
+			done < $HELPER/dynamic.db
+		fi
+		db update $2
+	;;
+	delete) db delete $2;;
+	list) db show $2;;
+	portal) webSRV $2;;
+	service) ipSRV $2;;
+	stratos) fn_stratos $2 $3 "$4";;
+	timer) echo "$TIMER";;
+	start) /etc/init.d/lockon start;;
+	stop) /etc/init.d/lockon stop;;
+	*) echo "usage $0 { add (DOMAIN) [dynamic] [secure] | update | delete | list | list (DOMAIN) }";;
+esac

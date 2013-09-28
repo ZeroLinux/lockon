@@ -1,0 +1,123 @@
+#!/bin/sh
+
+#  By ZeroLinux - 18/07/2013
+# 
+#  Copyright 2013 Carlos D. Rincon <carlosrincon2005@gmail.com>
+#  The development of this tool was supported by Projeto Addons (www.projeto addons.com.br)
+# 
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#  
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#  
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#  MA 02110-1301, USA.
+#  
+#
+
+. /partition/lockon/etc/global.cfg
+
+webstart(){
+	if [ "$(ps aux | grep '[l]ockon.conf')" -a -f "$PIDFILE" ]; then
+		echo "Portal already running..."
+		exit 1
+	else 
+		echo "Starting portal..."
+		/usr/local/sbin/lighttpd -f $WEBCONF > /dev/null 2>&1
+		[ "$?" -eq 0 ] && iptables -t nat -I PREROUTING -m mark --mark 99 -p tcp --dport 80 -j DNAT --to-destination $PORTAL:888
+		[ "$?" -eq 0 ] && echo "Ready, Lockon portal is running now..." || { echo "Ooops!, something wrong happened when trying start the lockon portal, please try again..."; exit 1; }
+	fi
+}
+
+webstop(){
+	[ ! -e $PIDFILE ] && { echo "Portal is not runing."; exit 1; }
+	echo "Stoping Lockon portal..."
+	kill $(cat $PIDFILE) > /dev/null 2>&1
+	[ "$?" -eq 0 ] && echo "Portal stopped" || { echo "Ooops!, imposible to stop Lockon portal, are you sure that it is already running?"; exit 1; }
+	[ "$?" -eq 0 ] && iptables -t nat -D PREROUTING -m mark --mark 99 -p tcp --dport 80 -j DNAT --to-destination $PORTAL:888
+}
+
+webrestart(){
+	echo "Restarting Lockon Portal"
+	webstop
+	webstart
+}
+
+lockon_start() {
+	[ "$($lockonbin service isactive)" = "true" ] && { echo "lockon already running..."; exit 1; }
+	$lockonbin service start
+}
+
+lockon_stop(){
+	[ "$($lockonbin service isactive)" = "false" ] && { echo "lockon already is stopped..."; exit 1; }
+	$lockonbin service stop
+}
+
+lockon_sleep(){
+	rm /tmp/lockon
+}
+
+lockon_reload(){
+	lockon_stop
+	lockon_start
+}
+
+fn_portal(){
+	case $1 in
+		start)
+			webstart
+		;;
+		stop)
+			webstop
+		;;
+		restart)
+			webrestart
+		;;
+	esac
+}
+
+fn_chain(){
+	case $1 in
+		start)
+			lockon_start
+		;;
+		stop)
+			lockon_stop
+		;;
+		restart)
+			lockon_reload
+		;;
+	esac
+}
+
+case $1 in
+	start)
+		echo "starting lockon chains"
+		lockon_start
+		echo "done"
+		echo "starting lockon portal..."
+		webstart
+	;;
+	stop)
+		lockon_stop
+		webstop
+	;;
+	reload)
+		lockon_reload
+		webrestart
+	;;
+	portal)
+		fn_portal "$2"
+	;;
+	chain)
+		fn_chain "$2"
+	;;
+	*) echo "usage $0 { start | stop | reload | portal ( start | stop | restart ) | chain ( start | stop | restart ) }";;
+esac

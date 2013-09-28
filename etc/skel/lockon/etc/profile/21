@@ -1,0 +1,122 @@
+#!/bin/sh
+
+#  By ZeroLinux - 18/07/2013
+# 
+#  Copyright 2013 Carlos D. Rincon <carlosrincon2005@gmail.com>
+#  The development of this tool was supported by Projeto Addons (www.projeto addons.com.br)
+#  
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#  
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#  
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#  MA 02110-1301, USA.
+#  
+#  
+
+#In this file stratos acts as Boss List
+ctrlStratos(){
+	action="$1"
+	local address="$2"
+	if [ "$action" = "add" ]; then
+		iptables -t mangle -I lockon -s ${address} -j RETURN
+		iptables -I lockon -s ${address} -j RETURN
+	else
+		iptables -t mangle -D lockon -s ${address} -j RETURN
+		iptables -D lockon -s ${address} -j RETURN
+	fi
+}
+
+fn_ssl(){
+	local address="${2}/32"
+	case $1 in
+		create)
+			iptables -N lockon
+			iptables -I FORWARD -p tcp --dport 443 -m state --state NEW,RELATED,ESTABLISHED -j lockon
+			#iptables -A FORWARD -p tcp --dport 443 -j lockon
+		;;
+		add)
+			iptables -A lockon -d ${address} -p tcp -j REJECT --reject-with tcp-reset
+		;;
+		remove)
+			iptables -D lockon -d ${address} -p tcp -j REJECT --reject-with tcp-reset
+		;;
+		delete)
+			#iptables -D FORWARD -p tcp --dport 443 -j lockon
+			iptables -D FORWARD -p tcp --dport 443 -m state --state NEW,RELATED,ESTABLISHED -j lockon
+			iptables -F lockon
+			iptables -X lockon
+		;;
+	esac
+}
+
+fn_http(){
+	local address="${2}/32"
+	case $1 in
+		create)
+			iptables -t mangle -N lockon
+			iptables -t mangle -I PREROUTING -p tcp --dport 80 -j lockon
+		;;
+		add)
+			iptables -t mangle -A lockon -d ${address} -j MARK --set-mark 99
+		;;
+		remove)
+			iptables -t mangle -D lockon -d ${address} -j MARK --set-mark 99
+		;;
+		delete)
+			iptables -t mangle -D PREROUTING -p tcp --dport 80 -j lockon
+			iptables -t mangle -F lockon
+			iptables -t mangle -X lockon
+		;;
+	esac
+}
+
+ctrlURL(){
+	action="$1" # add | delete
+	local address="$2"
+	conntype="$3"
+	if [ ! -n "$conntype" ]; then
+		fn_ssl ${1} "$address"
+		fn_http ${1} "$address"
+	else
+		fn_http ${1} "$address"
+	fi
+}
+
+loadProfile(){
+	echo "loading Profile..."
+	fn_http "create"
+	fn_ssl "create"
+	for i in $(ls $DBPATH); do
+		[ "$(grep "$i" $HELPER/ssl.db)" ] && SSL="true" || SSL="false"
+		while read ip; do
+			echo "adding ips of $i to http"
+			fn_http add "$ip"
+			if [ "$SSL" = "true" ]; then
+				echo "adding ips of $i to https"
+				fn_ssl add "$ip"
+			fi
+		done < $DBPATH/$i
+	done
+	echo "adding ips exceptions..."
+	while read ip comment; do
+		ctrlStratos "add" "$ip"
+	done < $STRATOSFILE
+}
+
+unloadProfile(){
+	echo "unloading profile..."
+	echo "unloading http"
+	fn_http delete
+	echo "unloading https"
+	fn_ssl delete
+	echo "ready"
+}
